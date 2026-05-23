@@ -64,71 +64,97 @@ contract FlashLoan {
         }
 
      function pancakeV3FlashCallback(
-        uint fee0,
-        uint fee1,
-        bytes calldata data
-     )  external{
-        require(msg.sender == address(pool), " Not Authorized");
-        console.log("MSG SENDER:", msg.sender); 
-        FlashCallbackData memory decoded = abi.decode(data,(FlashCallbackData));
+    uint fee0,
+    uint fee1,
+    bytes calldata data
+) external {
+    require(msg.sender == address(pool), " Not Authorized");
+    console.log("MSG SENDER:", msg.sender);
+    FlashCallbackData memory decoded = abi.decode(data,(FlashCallbackData));
 
-        // Initiliaze
-        IERC20 baseToken = (fee0 > 0) ? token0 : token1;
-        uint256 acquiredAmount = (fee0 > 0) ? decoded.amount0 : decoded.amount1;
-        console.log("Fee0: ", fee0);
-        console.log("fee1: ", fee1);
-        console.log("BaseToken: ",address(baseToken));
-        console.log("Borrow: ", acquiredAmount);
+    // Initialize
+    IERC20 baseToken = (fee0 > 0) ? token0 : token1;
+    uint256 acquiredAmount = (fee0 > 0) ? decoded.amount0 : decoded.amount1;
+    console.log("Fee0: ", fee0);
+    console.log("fee1: ", fee1);
+    console.log("BaseToken: ", address(baseToken));
+    console.log("Borrow: ", acquiredAmount);
 
-        // Trade 1
-        acquiredAmount = _place_swap(
-            acquiredAmount, 
-            [address(baseToken), decoded.path[0]], 
-            decoded.exchRoute[0], 
-            decoded.fee
-        );
+    // Trade 1
+    acquiredAmount = _place_swap(
+        acquiredAmount,
+        [address(baseToken), decoded.path[0]],
+        decoded.exchRoute[0],
+        decoded.fee
+    );
+    console.log("Swap1 Token", decoded.path[0]);
+    console.log("Swap1 Amount", acquiredAmount);
 
-        console.log("Swap1 Token", decoded.path[0]);
-        console.log("Swap1 Amount", acquiredAmount);
+    // Trade 2
+    acquiredAmount = _place_swap(
+        acquiredAmount,
+        [decoded.path[0], decoded.path[1]],
+        decoded.exchRoute[1],
+        decoded.fee
+    );
+    console.log("Swap2 Token", decoded.path[1]);
+    console.log("Swap2 Amount", acquiredAmount);
 
-        // Trade 2 
-        acquiredAmount = _place_swap(
-            acquiredAmount, 
-            [decoded.path[0],decoded.path[1]], 
-            decoded.exchRoute[1], 
-            decoded.fee
-        );  
+    // Trade 3
+    acquiredAmount = _place_swap(
+        acquiredAmount,
+        [decoded.path[1], address(baseToken)],
+        decoded.exchRoute[2],
+        decoded.fee
+    );
+    console.log("Swap3 Token", address(baseToken));
+    console.log("Swap3 Amount", acquiredAmount);
 
-        console.log("Swap2 Token", decoded.path[1]);
-        console.log("Swap2 Amount", acquiredAmount);   
+    // ── Profitability Check ────────────────────────────────────────────────
+    // uint256 repayAmount = (fee0 > 0)
+    //     ? decoded.amount0 + fee0
+    //     : decoded.amount1 + fee1;
 
-        // Trade 3 
-        acquiredAmount = _place_swap(
-            acquiredAmount, 
-            [decoded.path[1], address(baseToken)], 
-            decoded.exchRoute[2], 
-            decoded.fee
-        );  
+    // console.log("Repay Amount: ", repayAmount);
+    // console.log("Profit:       ", acquiredAmount > repayAmount ? acquiredAmount - repayAmount : 0);
 
-        console.log("Swap3 Token", address(baseToken));
-        console.log("Swap3 Amount", acquiredAmount);
+    // require(
+    //     acquiredAmount > repayAmount,
+    //     "Not profitable: swap returns less than repay amount"
+    // );
+    // ─────────────────────────────────────────────────────────────────────
 
-        // Repay The FlashLoan
+    // ── Repay Breakdown Logs ──────────────────────────────────────────
+        uint256 repayAmount = (fee0 > 0)
+            ? decoded.amount0 + fee0
+            : decoded.amount1 + fee1;
 
-        if(fee0 >0) {
-            TransferHelper.safeApprove(address(token0), address(this), token0.balanceOf(address(this)));
-            token0.safeTransfer(address(pool), decoded.amount0 + fee0);
-            console.log("Token0: ", address(token0));
-            console.log("Token0 Balance: ", token0.balanceOf(address(this)));
-            token0.safeTransfer(decoded.caller, token0.balanceOf(address(this)));
+        console.log("Borrow Amount:  ", (fee0 > 0) ? decoded.amount0 : decoded.amount1);
+        console.log("Flash Fee:      ", (fee0 > 0) ? fee0 : fee1);
+        console.log("Repay Amount:   ", repayAmount);
+        console.log("Acquired Amount:", acquiredAmount);
+
+        if (acquiredAmount > repayAmount) {
+            console.log("Profit/Loss: +", acquiredAmount - repayAmount);
         } else {
-            TransferHelper.safeApprove(address(token1), address(this), token1.balanceOf(address(this)));
-            token1.safeTransfer(address(pool), decoded.amount1 + fee1);
-            console.log("Token1: ", address(token1));
-            console.log("Token1 Balance: ", token1.balanceOf(address(this)));
-            token1.safeTransfer(decoded.caller, token1.balanceOf(address(this)));
+            console.log("Profit/Loss: -", repayAmount - acquiredAmount);
         }
+
+    // Repay The FlashLoan
+    if(fee0 > 0) {
+        TransferHelper.safeApprove(address(token0), address(this), token0.balanceOf(address(this)));
+        token0.safeTransfer(address(pool), decoded.amount0 + fee0);
+        console.log("Token0: ", address(token0));
+        console.log("Token0 Balance: ", token0.balanceOf(address(this)));
+        token0.safeTransfer(decoded.caller, token0.balanceOf(address(this)));
+    } else {
+        TransferHelper.safeApprove(address(token1), address(this), token1.balanceOf(address(this)));
+        token1.safeTransfer(address(pool), decoded.amount1 + fee1);
+        console.log("Token1: ", address(token1));
+        console.log("Token1 Balance: ", token1.balanceOf(address(this)));
+        token1.safeTransfer(decoded.caller, token1.balanceOf(address(this)));
     }
+}
 
      function _place_swap(
         uint256 _amountIn,
